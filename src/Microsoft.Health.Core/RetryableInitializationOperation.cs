@@ -5,6 +5,7 @@
 
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using EnsureThat;
@@ -23,6 +24,9 @@ namespace Microsoft.Health.Core
         private SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
         private Task _task;
 
+        private TimeSpan _minimumRetryTime = TimeSpan.Zero;
+        private TimeSpan _minimumDelayBetweenInvocations = TimeSpan.Zero;
+
         public RetryableInitializationOperation(Func<Task> operation)
             : this(operation, false)
         {
@@ -33,6 +37,13 @@ namespace Microsoft.Health.Core
             EnsureArg.IsNotNull(operation, nameof(operation));
             _operation = operation;
             _continueOnCapturedContext = continueOnCapturedContext;
+        }
+        
+        public RetryableInitializationOperation(Func<Task> operation, TimeSpan minimumRetryTime, TimeSpan minimumDelayBetweenInvocations)
+            : this(operation, false)
+        {
+            _minimumRetryTime = minimumRetryTime;
+            _minimumDelayBetweenInvocations = minimumDelayBetweenInvocations;
         }
 
         /// <summary>
@@ -56,6 +67,8 @@ namespace Microsoft.Health.Core
                 return;
             }
 
+            StopWatch totalTime = new Stopwatch();
+
             if (_task == null)
             {
                 await _semaphore.WaitAsync().ConfigureAwait(_continueOnCapturedContext);
@@ -73,24 +86,36 @@ namespace Microsoft.Health.Core
                 }
             }
 
-            if (_task.IsFaulted)
-            {
-                await _semaphore.WaitAsync().ConfigureAwait(_continueOnCapturedContext);
+            TimeSpan elapsed = TimeSpan.Zero; // set to zero to guarantee a potential call in loop
+            TimeSpan lastInvocationDuration = TimeSpan.MaxValue; // set to MaxValue to prevent sleep in first call
+            while(_task.IsFaulted){
+                StopWatch currentInvocation = new Stopwatch();
+                if(elapsed > _minimumRetryTime){
+                    break;
+                }
+                if( lastInvocationDuration < _minimumDelayBetweenInvocations){
+                    Thread.Sleep(_minimumDelayBetweenInvocations - lastInvocationDuration);
+                }
 
-                try
-                {
-                    if (_task.IsFaulted)
+                if(_task.IsFaulted) {
+                    await _semaphore.WaitAsync().ConfigureAwait(_continueOnCapturedContext);
+
+                    try
                     {
-                        // try again
-                        _task = _operation();
+                        if (_task.IsFaulted)
+                        {
+                            // try again
+                            _task = _operation();
+                        }
+                    }
+                    finally
+                    {
+                        _semaphore.Release();
                     }
                 }
-                finally
-                {
-                    _semaphore.Release();
-                }
+                elapsed = totalTime.Elapsed;
+                lastInvocationDuration = currentInvocation.Elapsed;
             }
-
             await _task.ConfigureAwait(_continueOnCapturedContext);
         }
 

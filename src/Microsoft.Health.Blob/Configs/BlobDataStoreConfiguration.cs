@@ -11,6 +11,8 @@ namespace Microsoft.Health.Blob.Configs
 
         public BlobDataStoreAuthenticationType AuthenticationType { get; set; } = BlobDataStoreAuthenticationType.ConnectionString;
 
+        public BlobDataStoreInitializationOptions InitializationOptions { get; } = new BlobDataStoreInitializationOptions();
+        
         public BlobDataStoreRequestOptions RequestOptions { get; } = new BlobDataStoreRequestOptions();
     }
 }

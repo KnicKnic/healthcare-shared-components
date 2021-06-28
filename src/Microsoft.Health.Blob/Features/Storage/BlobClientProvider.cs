@@ -36,7 +36,10 @@ namespace Microsoft.Health.Blob.Features.Storage
             _blobServiceClient = blobClientInitializer.CreateBlobClient(blobDataStoreConfiguration);
 
             _initializationOperation = new RetryableInitializationOperation(
-                () => blobClientInitializer.InitializeDataStoreAsync(_blobServiceClient, blobDataStoreConfiguration, collectionInitializers));
+                () => blobClientInitializer.InitializeDataStoreAsync(_blobServiceClient, blobDataStoreConfiguration, collectionInitializers),
+                blobDataStoreConfiguration.InitializationOptions.MinimumRetryTime,
+                blobDataStoreConfiguration.InitializationOptions.MinimumDelayBetweenInvocations
+                );
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
